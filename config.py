@@ -32,13 +32,16 @@ IS_POSTGRES = DATABASE_URL.startswith("postgresql")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
-# --- Objets surveillés (Composants The War Within) ---
+# --- Objets surveillés (Top objets actifs - Hyjal EU) ---
 TRACKED_ITEMS = {
-    213699: "Bismuth (Minerai)",
-    212280: "Arbuste-champignon (Herbe)",
-    211330: "Tisse-toile (Tissu)",
-    210804: "Poussière tempêtueuse (Enchantement)",
-    224464: "Flacon de chaos alchimique",
+    82800:  "Cage de mascotte",
+    239675: "Épaulières de cour",
+    239672: "Robe de cour",
+    240959: "Lunettes de joaillerie sin'dorei",
+    237952: "Boîte à outils de forge bénie par le soleil",
+    244626: "Chapeau d'alchimiste sin'dorei",
+    240947: "Bague en cuivre resplendissante",
+    244591: "Chaperon renforcé de contrebande",
 }
 
 
