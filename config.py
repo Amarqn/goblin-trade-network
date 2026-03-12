@@ -25,6 +25,9 @@ LOCALE = os.getenv("LOCALE", "fr_FR")
 # --- Base de données ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///wow_economy.db")
 
+# Détection automatique du mode
+IS_POSTGRES = DATABASE_URL.startswith("postgresql")
+
 # --- Serveur ---
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

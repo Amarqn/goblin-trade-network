@@ -12,9 +12,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import sqlite3
 import os
-from config import DATABASE_URL, validate_config
+from config import validate_config
+from db import get_items as db_get_items, get_prices, get_stats
 
 
 # ──────────────────────────────────────────────
@@ -37,23 +37,6 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
-
-
-# ──────────────────────────────────────────────
-#  UTILITAIRES BASE DE DONNÉES
-# ──────────────────────────────────────────────
-
-def get_db_path() -> str:
-    if DATABASE_URL.startswith("sqlite"):
-        return DATABASE_URL.replace("sqlite:///", "")
-    return "wow_economy.db"
-
-
-def get_connection():
-    """Ouvre une connexion SQLite avec row_factory pour un accès par nom."""
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 # ──────────────────────────────────────────────
@@ -152,13 +135,11 @@ def analyze_prices(history: list[dict]) -> dict:
 def get_items():
     """Retourne la liste des objets surveillés."""
     try:
-        conn = get_connection()
-        rows = conn.execute("SELECT id, name FROM items ORDER BY name").fetchall()
-        conn.close()
+        items = db_get_items()
         return {
             "status": "success",
-            "count": len(rows),
-            "data": [{"id": r["id"], "name": r["name"]} for r in rows],
+            "count": len(items),
+            "data": [{"id": r["id"], "name": r["name"]} for r in items],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -168,20 +149,8 @@ def get_items():
 def get_item_prices(item_id: int):
     """Retourne l'historique et l'analyse IA d'un objet."""
     try:
-        conn = get_connection()
-        rows = conn.execute(
-            """
-            SELECT timestamp, min_price_gold
-            FROM ah_prices
-            WHERE item_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 20
-            """,
-            (item_id,),
-        ).fetchall()
-        conn.close()
-
-        history = [{"date": r["timestamp"], "price": r["min_price_gold"]} for r in rows]
+        rows = get_prices(item_id)
+        history = [{"date": str(r["timestamp"]), "price": r["min_price_gold"]} for r in rows]
         analysis = analyze_prices(history)
 
         return {
@@ -198,21 +167,8 @@ def get_item_prices(item_id: int):
 def get_global_stats():
     """Retourne des statistiques globales pour le dashboard."""
     try:
-        conn = get_connection()
-
-        total_records = conn.execute("SELECT COUNT(*) as c FROM ah_prices").fetchone()["c"]
-        total_items = conn.execute("SELECT COUNT(*) as c FROM items").fetchone()["c"]
-        last_update = conn.execute(
-            "SELECT MAX(timestamp) as t FROM ah_prices"
-        ).fetchone()["t"]
-
-        conn.close()
-        return {
-            "status": "success",
-            "total_records": total_records,
-            "tracked_items": total_items,
-            "last_update": last_update,
-        }
+        stats = get_stats()
+        return {"status": "success", **stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

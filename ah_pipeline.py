@@ -1,109 +1,125 @@
+"""
+ah_pipeline.py — Pipeline ETL (Extract, Transform, Load)
+=========================================================
+Ce script orchestre le cycle complet de collecte de données :
+  1. EXTRACT  → Télécharge les ~80 000 enchères depuis l'API Blizzard
+  2. TRANSFORM → Filtre le bruit, isole le prix minimum par objet surveillé
+  3. LOAD     → Persiste les résultats dans la base de données relationnelle
+
+Compétences démontrées : Data Engineering, Pipeline ETL, API REST, SQL.
+"""
+
 import requests
-import sqlite3
 import time
+import sys
+from config import (
+    BLIZZARD_CLIENT_ID,
+    BLIZZARD_CLIENT_SECRET,
+    CONNECTED_REALM_ID,
+    REGION,
+    LOCALE,
+    TRACKED_ITEMS,
+    IS_POSTGRES,
+    validate_config,
+)
+from db import setup_tables, upsert_item, insert_price
 
-# --- VOS CLÉS BLIZZARD ---
-CLIENT_ID = "eb78f80c9496414ab1bab42b090afc52"
-CLIENT_SECRET = "Ibt8O2w7TankTxjqvqw1rKigYo6WkBmo"
-HYJAL_ID = 1390
 
-# --- LE DICTIONNAIRE (Les objets qu'on veut surveiller) ---
-# Format : { ID_Objet : "Nom de l'objet" }
-# J'ai mis quelques composants de base de The War Within (Minerais, Herbes, Tissu)
-TRACKED_ITEMS = {
-    213699: "Bismuth (Minerai)",
-    212280: "Arbuste-champignon (Herbe)",
-    211330: "Tisse-toile (Tissu)",
-    210804: "Poussière tempêtueuse (Enchantement)",
-    224464: "Flacon de chaos alchimique"
-}
+# ──────────────────────────────────────────────
+#  AUTHENTIFICATION BLIZZARD (OAuth 2.0)
+# ──────────────────────────────────────────────
 
-def setup_database():
-    """Prépare les tables de la base de données relationnelle."""
-    conn = sqlite3.connect("wow_economy.db")
-    cursor = conn.cursor()
-    
-    # Table du dictionnaire d'objets
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY,
-            name TEXT
-        )
-    ''')
-    
-    # Table de l'historique des prix de l'Hôtel des Ventes
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ah_prices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER,
-            min_price_gold REAL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(item_id) REFERENCES items(id)
-        )
-    ''')
-    
-    # On remplit le dictionnaire dans la base
-    for item_id, name in TRACKED_ITEMS.items():
-        cursor.execute("INSERT OR IGNORE INTO items (id, name) VALUES (?, ?)", (item_id, name))
-        
-    conn.commit()
-    conn.close()
-
-def get_token():
+def get_access_token() -> str:
+    """Obtient un jeton OAuth2 via Client Credentials Grant."""
     url = "https://oauth.battle.net/token"
-    response = requests.post(url, data={"grant_type": "client_credentials"}, auth=(CLIENT_ID, CLIENT_SECRET))
-    return response.json().get("access_token")
+    resp = requests.post(
+        url,
+        data={"grant_type": "client_credentials"},
+        auth=(BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
+    print("🔑 Authentification OAuth2 réussie.")
+    return token
 
-def run_etl_pipeline(access_token):
-    print("🚀 Démarrage du Pipeline ETL...")
-    
-    # 1. EXTRACT (Téléchargement)
-    url = f"https://eu.api.blizzard.com/data/wow/connected-realm/{HYJAL_ID}/auctions"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers, params={"namespace": "dynamic-eu", "locale": "fr_FR"})
-    
-    if response.status_code != 200:
-        print("❌ Erreur de téléchargement.")
-        return
-        
-    auctions = response.json().get("auctions", [])
-    print(f"📥 Extraction terminée : {len(auctions):,} enchères brutes récupérées.")
-    
-    # 2. TRANSFORM (Nettoyage et calcul du prix minimum)
-    # On prépare un dictionnaire temporaire avec des prix infinis
-    lowest_prices = {item_id: float('inf') for item_id in TRACKED_ITEMS.keys()}
-    
+
+# ──────────────────────────────────────────────
+#  PIPELINE ETL
+# ──────────────────────────────────────────────
+
+def extract(token: str) -> list[dict]:
+    """Phase EXTRACT — Télécharge les enchères brutes."""
+    url = (
+        f"https://{REGION}.api.blizzard.com/data/wow/"
+        f"connected-realm/{CONNECTED_REALM_ID}/auctions"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"namespace": f"dynamic-{REGION}", "locale": LOCALE}
+
+    print("📡 Connexion à l'Hôtel des Ventes...")
+    start = time.time()
+    resp = requests.get(url, headers=headers, params=params, timeout=30)
+    resp.raise_for_status()
+    elapsed = time.time() - start
+
+    auctions = resp.json().get("auctions", [])
+    print(f"📥 {len(auctions):,} enchères extraites en {elapsed:.1f}s")
+    return auctions
+
+
+def transform(auctions: list[dict]) -> dict[int, float]:
+    """Phase TRANSFORM — Isole le prix minimum par objet surveillé."""
+    lowest = {item_id: float("inf") for item_id in TRACKED_ITEMS}
+
     for auc in auctions:
-        item_id = auc["item"]["id"]
-        
-        # Si c'est un objet qu'on surveille
-        if item_id in lowest_prices:
-            # Le prix est soit à l'unité (unit_price), soit pour le lot (buyout)
-            prix_brut = auc.get("unit_price", auc.get("buyout", 0))
-            if prix_brut > 0 and prix_brut < lowest_prices[item_id]:
-                lowest_prices[item_id] = prix_brut
-                
-    print("⚙️ Transformation terminée : Bruit éliminé, prix minimums isolés.")
-    
-    # 3. LOAD (Sauvegarde dans la base de données)
-    conn = sqlite3.connect("wow_economy.db")
-    cursor = conn.cursor()
-    
-    print("\n💾 --- RÉSULTATS SAUVEGARDÉS ---")
-    for item_id, price_copper in lowest_prices.items():
-        if price_copper != float('inf'):
-            price_gold = price_copper / 10000
-            name = TRACKED_ITEMS[item_id]
-            print(f"- {name} : {price_gold:,.2f} PO")
-            
-            cursor.execute("INSERT INTO ah_prices (item_id, min_price_gold) VALUES (?, ?)", (item_id, price_gold))
-            
-    conn.commit()
-    conn.close()
-    print("✅ Pipeline ETL exécuté avec succès. La base de données est à jour !")
+        aid = auc["item"]["id"]
+        if aid in lowest:
+            price = auc.get("unit_price", auc.get("buyout", 0))
+            if 0 < price < lowest[aid]:
+                lowest[aid] = price
+
+    # Convertit cuivre → or et élimine les objets non trouvés
+    results = {
+        iid: price / 10_000
+        for iid, price in lowest.items()
+        if price != float("inf")
+    }
+    print(f"⚙️  Transformation terminée : {len(results)} objets avec prix valide.")
+    return results
+
+
+def load(prices: dict[int, float]):
+    """Phase LOAD — Persiste les prix dans la base relationnelle."""
+    for item_id, gold_price in prices.items():
+        insert_price(item_id, gold_price)
+        print(f"  💾 {TRACKED_ITEMS[item_id]:40s} → {gold_price:>12,.2f} PO")
+
+    print(f"✅ Pipeline ETL terminé — base {'PostgreSQL' if IS_POSTGRES else 'SQLite'} à jour.")
+
+
+# ──────────────────────────────────────────────
+#  POINT D'ENTRÉE
+# ──────────────────────────────────────────────
+
+def run():
+    """Exécute le pipeline complet."""
+    validate_config()
+    setup_tables()
+
+    # Enregistre les objets surveillés
+    for item_id, name in TRACKED_ITEMS.items():
+        upsert_item(item_id, name)
+
+    token = get_access_token()
+    raw = extract(token)
+    prices = transform(raw)
+    load(prices)
+
 
 if __name__ == "__main__":
-    setup_database()
-    token = get_token()
-    if token:
-        run_etl_pipeline(token)
+    try:
+        run()
+    except Exception as e:
+        print(f"❌ Erreur fatale : {e}", file=sys.stderr)
+        sys.exit(1)
