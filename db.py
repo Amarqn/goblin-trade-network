@@ -1,29 +1,21 @@
 """
-db.py — Couche d'abstraction Base de Données
-==============================================
-Supporte SQLite (développement local) et PostgreSQL (production cloud).
-Détecte automatiquement le mode via DATABASE_URL.
-
-Compétences démontrées : Design Pattern, Abstraction, SQL portable.
+Couche d'abstraction pour la base de données.
+Supporte SQLite (dev local) et PostgreSQL (production).
+Le choix se fait automatiquement via DATABASE_URL.
 """
 
 import sqlite3
 from config import DATABASE_URL, IS_POSTGRES
 
-# PostgreSQL (si disponible)
 if IS_POSTGRES:
     import psycopg2
     import psycopg2.extras
 
 
 def get_connection():
-    """
-    Retourne une connexion à la base de données.
-    Détecte automatiquement SQLite ou PostgreSQL.
-    """
+    """Retourne une connexion à la base active."""
     if IS_POSTGRES:
-        conn = psycopg2.connect(DATABASE_URL)
-        return conn
+        return psycopg2.connect(DATABASE_URL)
     else:
         db_path = DATABASE_URL.replace("sqlite:///", "")
         conn = sqlite3.connect(db_path)
@@ -32,13 +24,8 @@ def get_connection():
 
 
 def execute_query(query, params=None, fetch=False):
-    """
-    Exécute une requête SQL de manière portable.
-    - fetch=False : INSERT/UPDATE/CREATE (commit automatique)
-    - fetch=True  : SELECT (retourne une liste de dicts)
-    """
+    """Exécute une requête SQL. Retourne une liste de dicts si fetch=True."""
     conn = get_connection()
-
     if IS_POSTGRES:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     else:
@@ -46,15 +33,8 @@ def execute_query(query, params=None, fetch=False):
 
     try:
         cursor.execute(query, params or ())
-
         if fetch:
-            rows = cursor.fetchall()
-            if IS_POSTGRES:
-                # psycopg2 RealDictCursor retourne déjà des dicts
-                return [dict(row) for row in rows]
-            else:
-                # sqlite3 Row → dict
-                return [dict(row) for row in rows]
+            return [dict(row) for row in cursor.fetchall()]
         else:
             conn.commit()
             return None
@@ -64,12 +44,8 @@ def execute_query(query, params=None, fetch=False):
 
 
 def setup_tables():
-    """
-    Crée les tables si elles n'existent pas.
-    SQL compatible SQLite ET PostgreSQL.
-    """
+    """Crée les tables si elles n'existent pas."""
     if IS_POSTGRES:
-        # PostgreSQL utilise SERIAL au lieu de AUTOINCREMENT
         execute_query("""
             CREATE TABLE IF NOT EXISTS items (
                 id   INTEGER PRIMARY KEY,
@@ -85,7 +61,6 @@ def setup_tables():
             )
         """)
     else:
-        # SQLite
         execute_query("""
             CREATE TABLE IF NOT EXISTS items (
                 id   INTEGER PRIMARY KEY,
@@ -102,11 +77,11 @@ def setup_tables():
             )
         """)
 
-    print(f"📁 Tables initialisées ({'PostgreSQL' if IS_POSTGRES else 'SQLite'}).")
+    db_type = "PostgreSQL" if IS_POSTGRES else "SQLite"
+    print(f"Tables initialisées ({db_type}).")
 
 
 def upsert_item(item_id: int, name: str):
-    """Insère ou met à jour un objet dans le dictionnaire."""
     if IS_POSTGRES:
         execute_query(
             "INSERT INTO items (id, name) VALUES (%s, %s) ON CONFLICT (id) DO UPDATE SET name = %s",
@@ -120,7 +95,6 @@ def upsert_item(item_id: int, name: str):
 
 
 def insert_price(item_id: int, price: float):
-    """Insère un relevé de prix."""
     if IS_POSTGRES:
         execute_query(
             "INSERT INTO ah_prices (item_id, min_price_gold) VALUES (%s, %s)",
@@ -134,12 +108,10 @@ def insert_price(item_id: int, price: float):
 
 
 def get_items() -> list[dict]:
-    """Retourne tous les objets surveillés."""
     return execute_query("SELECT id, name FROM items ORDER BY name", fetch=True)
 
 
 def get_prices(item_id: int, limit: int = 20) -> list[dict]:
-    """Retourne l'historique des prix d'un objet."""
     if IS_POSTGRES:
         return execute_query(
             "SELECT timestamp, min_price_gold FROM ah_prices WHERE item_id = %s ORDER BY timestamp DESC LIMIT %s",
@@ -155,7 +127,6 @@ def get_prices(item_id: int, limit: int = 20) -> list[dict]:
 
 
 def get_stats() -> dict:
-    """Retourne les statistiques globales."""
     rows = execute_query("SELECT COUNT(*) as c FROM ah_prices", fetch=True)
     total_records = rows[0]["c"] if rows else 0
 

@@ -1,148 +1,110 @@
-# 💰 Goblin Trade Network
+# Goblin Trade Network
 
-**Application Full-Stack d'Intelligence Économique pour World of Warcraft**
+**Outil d'analyse de marché pour World of Warcraft**
 
-> Analyse en temps réel de l'Hôtel des Ventes (Auction House) du serveur Hyjal-EU, avec pipeline ETL, API REST et recommandations IA.
+Application web qui surveille l'Hôtel des Ventes (Auction House) du serveur Hyjal-EU en temps réel et génère des recommandations d'achat/vente.
 
----
+Accessible en ligne : **https://goblin-trade-network.onrender.com**
 
-## 🎯 Objectif du Projet
+## Contexte
 
-Ce projet démontre l'intégration de compétences transversales en informatique à travers un cas d'usage concret : **l'optimisation des transactions dans une économie virtuelle de jeu vidéo**.
+World of Warcraft possède une économie virtuelle complexe. Chaque serveur héberge un Hôtel des Ventes où les joueurs achètent et vendent des objets contre de l'or (la monnaie du jeu). À tout instant, des dizaines de milliers d'enchères sont actives, avec des prix qui fluctuent en fonction de l'offre et la demande, exactement comme un marché financier réel.
 
-L'application collecte les données de ~80 000 enchères depuis l'API Blizzard, les transforme, les stocke dans une base relationnelle, et génère des recommandations d'achat/vente via un algorithme d'analyse statistique.
+Le problème : analyser manuellement 80 000+ enchères pour trouver les bonnes affaires est impossible. Ce projet automatise ce processus en collectant les données via l'API officielle de Blizzard, en les stockant dans une base de données, et en appliquant des indicateurs statistiques pour identifier les objets sous-évalués ou surévalués.
 
----
+## Comment ça fonctionne
 
-## 🏗️ Architecture Technique
+Le projet suit un pipeline en 4 étapes :
+
+**1. Collecte (ah_pipeline.py)**
+Un script se connecte aux serveurs de Blizzard via OAuth 2.0 et télécharge l'intégralité des enchères actives (~80 000 entrées). C'est un pipeline ETL classique : extraction des données brutes, transformation (nettoyage, calcul du prix minimum par objet), puis chargement en base.
+
+**2. Stockage (db.py)**
+Les données sont persistées dans une base relationnelle. Le projet supporte SQLite pour le développement local et PostgreSQL (via Supabase) pour la production. Une couche d'abstraction permet de basculer entre les deux sans changer le code métier.
+
+**3. Analyse (server.py)**
+Une API REST (FastAPI) expose les données et applique un algorithme de recommandation inspiré des stratégies de finance quantitative. Il compare le prix actuel à la moyenne mobile et à l'écart-type pour générer un signal : acheter (prix anormalement bas), vendre (prix anormalement haut), ou conserver (prix stable).
+
+**4. Interface (static/index.html)**
+Un dashboard interactif permet de visualiser les prix, comparer les objets entre eux, et consulter les recommandations. Le tout fonctionne dans un navigateur, sans installation.
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   FRONTEND (HTML/CSS/JS)             │
-│          Dashboard interactif + Chart.js             │
-└──────────────────────┬──────────────────────────────┘
-                       │ HTTP REST
-┌──────────────────────▼──────────────────────────────┐
-│                  BACKEND (FastAPI)                    │
-│   API REST · Algorithme IA · Middleware CORS          │
-└──────────────────────┬──────────────────────────────┘
-                       │ SQL
-┌──────────────────────▼──────────────────────────────┐
-│              BASE DE DONNÉES (SQLite/PostgreSQL)     │
-│         Schéma relationnel normalisé                 │
-└──────────────────────┬──────────────────────────────┘
-                       │ Alimenté par
-┌──────────────────────▼──────────────────────────────┐
-│              PIPELINE ETL (ah_pipeline.py)            │
-│   Extract → Transform → Load  (API Blizzard OAuth2) │
-└─────────────────────────────────────────────────────┘
+Frontend (HTML/CSS/JS + Chart.js)
+        |
+        | HTTP REST
+        v
+Backend (FastAPI + Python)
+        |
+        | SQL
+        v
+Base de données (SQLite / PostgreSQL)
+        ^
+        | Alimenté par
+        |
+Pipeline ETL (API Blizzard, OAuth 2.0)
 ```
 
----
+## Algorithme de recommandation
 
-## 🔬 Compétences Démontrées
+L'algorithme repose sur trois indicateurs :
 
-| Domaine | Implémentation |
-|---|---|
-| **Data Engineering** | Pipeline ETL complet, extraction de ~80 000 enregistrements, nettoyage et chargement en base |
-| **Intelligence Artificielle** | Algorithme de recommandation basé sur les moyennes mobiles, écart-type et analyse de tendance |
-| **Développement Backend** | API REST avec FastAPI, architecture MVC, gestion d'erreurs, documentation auto-générée (Swagger) |
-| **Développement Frontend** | Interface responsive, graphiques interactifs (Chart.js), UX soignée |
-| **Base de Données** | Modèle relationnel normalisé, requêtes SQL optimisées, migration SQLite → PostgreSQL |
-| **Cybersécurité** | Authentification OAuth 2.0 (Blizzard API), variables d'environnement, CORS configuré |
-| **DevOps** | Déploiement Cloud (Render), CI/CD via GitHub, séparation des environnements |
+- **Moyenne mobile** : prix moyen sur les N derniers relevés
+- **Écart-type** : mesure de la volatilité
+- **Tendance** : comparaison de la moyenne récente vs ancienne
 
----
+Logique de décision :
+- Prix < Moyenne - écart-type → ACHETER (sous-évalué)
+- Prix > Moyenne + écart-type → VENDRE (surévalué)
+- Sinon → CONSERVER (stable)
 
-## 📁 Structure du Projet
+C'est une version simplifiée de la stratégie *Moving Average Crossover* utilisée en trading.
+
+## Structure du projet
 
 ```
 goblin-trade-network/
-├── ah_pipeline.py        # Pipeline ETL (Extract, Transform, Load)
-├── server.py             # API Backend FastAPI + Algorithme IA
-├── config.py             # Configuration centralisée (variables d'env)
-├── requirements.txt      # Dépendances Python
-├── .env.example          # Template de configuration (sans secrets)
-├── .gitignore            # Fichiers exclus du versioning
-├── README.md             # Documentation
+├── ah_pipeline.py      Pipeline ETL
+├── server.py           API REST + algorithme de recommandation
+├── db.py               Couche d'abstraction base de données
+├── config.py           Configuration centralisée (.env)
+├── requirements.txt    Dépendances Python
+├── .env.example        Template de configuration
+├── .gitignore          Fichiers exclus du versioning
+├── README.md
 └── static/
-    └── index.html        # Frontend (Dashboard interactif)
+    └── index.html      Dashboard interactif
 ```
 
----
+## Installation
 
-## 🚀 Installation & Lancement
+Prérequis : Python 3.10+ et un compte développeur Blizzard (https://develop.battle.net).
 
-### Prérequis
-- Python 3.10+
-- Un compte développeur Blizzard ([develop.battle.net](https://develop.battle.net))
-
-### 1. Cloner le dépôt
 ```bash
-git clone https://github.com/VOTRE_USERNAME/goblin-trade-network.git
+git clone https://github.com/Amarqn/goblin-trade-network.git
 cd goblin-trade-network
-```
 
-### 2. Configurer l'environnement
-```bash
 cp .env.example .env
-# Éditez .env avec vos clés Blizzard
-```
+# Remplir .env avec vos clés Blizzard
 
-### 3. Installer les dépendances
-```bash
 pip install -r requirements.txt
+
+python ah_pipeline.py    # Collecte les données
+python server.py         # Lance le serveur
 ```
 
-### 4. Lancer le pipeline ETL (collecte des données)
-```bash
-python ah_pipeline.py
-```
+L'application est ensuite accessible sur http://localhost:8000.
 
-### 5. Démarrer le serveur
-```bash
-python server.py
-```
+## Déploiement
 
-L'application est accessible sur `http://localhost:8000`.
+Le projet tourne en production sur Render (backend) avec une base PostgreSQL sur Supabase. Les clés API sont stockées dans les variables d'environnement de Render, jamais dans le code source.
 
----
+## Stack technique
 
-## 📊 Algorithme d'Analyse
+Python, FastAPI, SQLite, PostgreSQL, Supabase, Chart.js, HTML/CSS/JS, API Blizzard (OAuth 2.0), Render
 
-L'algorithme de recommandation repose sur trois indicateurs statistiques :
+## Licence
 
-1. **Moyenne mobile** — Prix moyen sur les N derniers relevés
-2. **Écart-type** — Mesure de la volatilité des prix
-3. **Tendance directionnelle** — Comparaison de la moyenne récente vs. ancienne
-
-**Logique de décision :**
-- `ACHETER` → Prix < Moyenne − σ (sous-évalué)
-- `VENDRE` → Prix > Moyenne + σ (surévalué)
-- `CONSERVER` → Prix dans l'intervalle [μ−σ, μ+σ] (stable)
-
-Cette approche s'inspire de la stratégie financière *Moving Average Crossover*, simplifiée pour le contexte du jeu.
-
----
-
-## 🌐 Déploiement Cloud
-
-Le projet est déployé sur **Render** (backend + frontend) avec une base **PostgreSQL** hébergée sur **Supabase**.
-
-**URL de production :** `https://goblin-trade-network.onrender.com`
-
----
-
-## 🛡️ Sécurité
-
-- Les clés API ne sont **jamais** versionnées (`.gitignore`)
-- Authentification **OAuth 2.0** avec les serveurs Blizzard
-- Variables sensibles stockées en **variables d'environnement**
-- CORS configuré pour restreindre les origines autorisées
-
----
-
-## 📄 Licence
-
-Projet personnel à visée académique.  
-Données fournies par l'API Blizzard — © Blizzard Entertainment.
+Projet personnel à visée académique.
+Données fournies par l'API Blizzard. © Blizzard Entertainment.
