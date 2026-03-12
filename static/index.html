@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Goblin Trade Network</title>
+    <style>
+        body {
+            background-color: #1a1a1a; color: #f1f0ff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 40px;
+        }
+        h1 { color: #f59e0b; margin-bottom: 5px;}
+        .subtitle { color: #888; margin-bottom: 30px; font-style: italic; }
+        
+        /* Style du menu déroulant (Barre de recherche) */
+        select {
+            width: 100%; padding: 12px; margin-bottom: 25px;
+            background-color: #333; color: white;
+            border: 2px solid #f59e0b; border-radius: 8px;
+            font-size: 1.1em; cursor: pointer;
+        }
+
+        .card {
+            background-color: #2d2d2d; border-left: 4px solid #f59e0b;
+            padding: 20px; border-radius: 8px; max-width: 600px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .price-row {
+            display: flex; justify-content: space-between;
+            border-bottom: 1px solid #444; padding: 10px 0;
+        }
+        .price-row:last-child { border-bottom: none; }
+        
+        #ai-reco {
+            margin-bottom: 20px; padding: 15px; border-radius: 8px; 
+            background: #1e1e1e; display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Goblin Trade Network 💰</h1>
+    <div class="subtitle">Analyse Big Data - Serveur Hyjal (EU)</div>
+
+    <div class="card">
+        <label for="item-select" style="display:block; margin-bottom: 10px; font-weight: bold;">Rechercher un objet :</label>
+        <select id="item-select">
+            <option value="">-- Sélectionnez un composant à analyser --</option>
+        </select>
+
+        <div id="ai-reco">
+            <strong id="ai-action" style="font-size: 1.2em;"></strong><br>
+            <span id="ai-reason" style="font-size: 0.9em; color: #aaa;"></span>
+        </div>
+        
+        <h3 id="history-title" style="display: none;">Historique récent</h3>
+        <div id="price-list">Veuillez sélectionner un objet pour voir son analyse.</div>
+    </div>
+
+    <script>
+        const selectElement = document.getElementById('item-select');
+        const priceList = document.getElementById('price-list');
+        const recoDiv = document.getElementById('ai-reco');
+        const historyTitle = document.getElementById('history-title');
+
+        // 1. Au chargement de la page : On récupère la liste des objets depuis l'API
+        fetch('http://localhost:8000/api/items')
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === "success") {
+                    data.data.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.id;
+                        option.text = item.name;
+                        selectElement.appendChild(option);
+                    });
+                }
+            });
+
+        // 2. Quand l'utilisateur choisit un objet dans la liste
+        selectElement.addEventListener('change', (event) => {
+            const itemId = event.target.value;
+            
+            // Si on revient sur le choix vide
+            if(!itemId) {
+                priceList.innerHTML = "Veuillez sélectionner un objet pour voir son analyse.";
+                recoDiv.style.display = 'none';
+                historyTitle.style.display = 'none';
+                return;
+            }
+
+            priceList.innerHTML = "<em>Analyse en cours...</em>";
+
+            // On demande l'historique précis de cet objet à notre API
+            fetch(`http://localhost:8000/api/prices/${itemId}`)
+                .then(res => res.json())
+                .then(data => {
+                    priceList.innerHTML = ''; 
+                    historyTitle.style.display = 'block';
+
+                    if(data.status === "success") {
+                        // Affichage de l'IA
+                        if (data.analysis) {
+                            const actionSpan = document.getElementById('ai-action');
+                            const reasonSpan = document.getElementById('ai-reason');
+                            recoDiv.style.display = 'block';
+                            recoDiv.style.borderLeft = `5px solid ${data.analysis.color}`;
+                            actionSpan.innerText = `Recommandation : ${data.analysis.action}`;
+                            actionSpan.style.color = data.analysis.color;
+                            reasonSpan.innerText = data.analysis.reason;
+                        }
+
+                        // Affichage des prix
+                        data.data.forEach(item => {
+                            const row = document.createElement('div');
+                            row.className = 'price-row';
+                            const formattedPrice = new Intl.NumberFormat('fr-FR').format(item.price);
+                            const cleanDate = item.date.split('.')[0]; 
+                            
+                            row.innerHTML = `<span>📅 ${cleanDate}</span> <strong style="color: #fbbf24;">${formattedPrice} PO</strong>`;
+                            priceList.appendChild(row);
+                        });
+                        
+                        // Si aucune donnée n'est trouvée pour cet objet
+                        if(data.data.length === 0) {
+                            priceList.innerHTML = "Aucun historique trouvé pour cet objet.";
+                        }
+                    }
+                });
+        });
+    </script>
+</body>
+</html>

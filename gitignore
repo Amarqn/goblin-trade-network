@@ -1,0 +1,36 @@
+# ============================================
+# Goblin Trade Network - Fichiers à ignorer
+# ============================================
+
+# --- SÉCURITÉ : Clés et secrets ---
+.env
+*.env.local
+
+# --- Base de données locale ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# --- Système ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# --- IDE ---
+.vscode/
+.idea/
+*.code-workspace
