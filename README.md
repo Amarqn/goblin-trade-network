@@ -77,25 +77,6 @@ goblin-trade-network/
     └── index.html      Dashboard interactif
 ```
 
-## Installation
-
-Prérequis : Python 3.10+ et un compte développeur Blizzard (https://develop.battle.net).
-
-```bash
-git clone https://github.com/Amarqn/goblin-trade-network.git
-cd goblin-trade-network
-
-cp .env.example .env
-# Remplir .env avec vos clés Blizzard
-
-pip install -r requirements.txt
-
-python ah_pipeline.py    # Collecte les données
-python server.py         # Lance le serveur
-```
-
-L'application est ensuite accessible sur http://localhost:8000.
-
 ## Déploiement
 
 Le projet tourne en production sur Render (backend) avec une base PostgreSQL sur Supabase. Les clés API sont stockées dans les variables d'environnement de Render, jamais dans le code source.
